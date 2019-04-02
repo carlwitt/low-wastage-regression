@@ -38,22 +38,34 @@ class LowWastageRegression:
 		self.shift = {}
 		self.scale = {}
 		self.initial_ptp = {}
-		self.training_data = training_data.copy()
+		self.data = training_data.copy()
 		for column in [self.predictor_column, self.resource_column]:
-			self.shift[column] = np.min(self.training_data[column])
-			self.initial_ptp[column] = np.ptp(self.training_data[column])
+			self.shift[column] = np.min(self.data[column])
+			self.initial_ptp[column] = np.ptp(self.data[column])
 			self.scale[column] = self.initial_ptp[column] if self.initial_ptp[column] != 0 else 1
 		self.unscaled_mean_predictor= training_data[predictor_column].mean()
 
-		self.__transform__(self.training_data)
+		self.__transform__(self.data)
 
 		# train model
-		self.model, self.quality = self.__train__(optimize_base=False)
+		self.models = []
+
+		for i in range(10):
+			self.training_data = self.data.sample(frac=0.7, random_state=i)
+			self.models.append(self.__train__(optimize_base=False))
+			print(self.models[-1][0].slope)
+		print(self.models)
 
 	def predict(self, data: pd.DataFrame):
 		df = data.copy()
 		self.__transform__(df)
-		df[self.prediction_column] = self.model.apply(df)
+
+		# average predictions of all models
+		df[self.prediction_column] = 0
+		for model, quality in self.models:
+			df[self.prediction_column] += model.apply(df)
+		df[self.prediction_column] /= len(self.models)
+
 		self.__inverse_transform__(df)
 		return df[self.prediction_column]
 
@@ -137,7 +149,6 @@ class LowWastageRegression:
 		#
 
 		iqr_predictor = sps.iqr(self.training_data[self.predictor_column])
-		print("iqr_predictor: {0}".format(iqr_predictor))
 		iqr_resource = sps.iqr(self.training_data[self.resource_column])
 		slope = iqr_resource/iqr_predictor if iqr_predictor > 0 else 0
 		intercept = self.training_data[self.resource_column].mean() - slope * self.training_data[self.predictor_column].mean()
@@ -184,6 +195,14 @@ class LowWastageRegression:
 	def __linear_model__(self, slope, intercept, base):
 		return LinearModel(slope=slope, intercept=intercept, base=base, predictor_column=self.predictor_column, min_allocation=self.min_allocation)
 
+	@property
+	def model(self):
+		return max(self.models, key=lambda m: m[1].maq)[0]
+
+	@property
+	def quality(self):
+		return max(self.models, key=lambda m: m[1].maq)[1]
+
 
 class LinearModel:
 	def __init__(self, slope: float, intercept: float, predictor_column: Optional[str] = None, base: Optional[float] = None, min_allocation: Optional[float] = None):
@@ -211,7 +230,7 @@ if __name__ == '__main__':
 
 	before = time.time()
 
-	training = df.sample(frac=0.1)
+	training = df.sample(frac=0.5)
 	lwr = LowWastageRegression(training, predictor_column='input_size', resource_column='rss', run_time_column='run_time', relative_time_to_failure=0.5, min_allocation=0.01)
 
 	print("best_params: {0}".format(lwr.model))
