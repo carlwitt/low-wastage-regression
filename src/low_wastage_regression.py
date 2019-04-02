@@ -29,6 +29,7 @@ class LowWastageRegression:
 		self.predictor_column = predictor_column
 		self.resource_column = resource_column
 		self.run_time_column = run_time_column
+		self.prediction_column = 'first_allocation'
 
 		# normalize training data
 
@@ -52,9 +53,9 @@ class LowWastageRegression:
 	def predict(self, data: pd.DataFrame):
 		df = data.copy()
 		self.__transform__(df)
-		df['first_allocation'] = self.model.apply(df)
+		df[self.prediction_column] = self.model.apply(df)
 		self.__inverse_transform__(df)
-		return df['first_allocation']
+		return df[self.prediction_column]
 
 	def __transform__(self, data: pd.DataFrame):
 		for column in [self.predictor_column, self.resource_column]:
@@ -63,6 +64,7 @@ class LowWastageRegression:
 	def __inverse_transform__(self, data: pd.DataFrame):
 		for column in [self.predictor_column, self.resource_column]:
 			data[column] = data[column] * self.scale[column] + self.shift[column]
+		data[self.prediction_column] = data[self.prediction_column] * self.scale[self.resource_column] + self.shift[self.resource_column]
 
 	def __predictor_varies_enough__(self):
 		return self.initial_ptp[self.predictor_column] > 0.05 * self.unscaled_mean_predictor
@@ -209,7 +211,7 @@ if __name__ == '__main__':
 
 	before = time.time()
 
-	training = df.sample(frac=0.15)
+	training = df.sample(frac=0.1)
 	lwr = LowWastageRegression(training, predictor_column='input_size', resource_column='rss', run_time_column='run_time', relative_time_to_failure=0.5, min_allocation=0.01)
 
 	print("best_params: {0}".format(lwr.model))
